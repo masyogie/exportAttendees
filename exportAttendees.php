@@ -22,24 +22,21 @@ function tribe_export_custom_add_columns($columns)
 {
     $columns['billing_first_name'] = 'Billing First Name';
     $columns['billing_last_name'] = 'Billing Last Name';
-    $columns['billing_company'] = 'Billing Company';
     $columns['billing_address_1'] = 'Billing Address 1';
-    $columns['billing_address_2'] = 'Billing Address 2';
     $columns['billing_city'] = 'Billing City';
     $columns['billing_state'] = 'Billing State';
     $columns['billing_postcode'] = 'Billing Zip';
     $columns['billing_phone'] = 'Phone';
     $columns['billing_email'] = 'Email';
 
-    $columns['order_comments'] = 'Order Comments';
-
     $columns['order_date'] = 'Order Date';
-    $columns['order_notes'] = 'Order Notes';
-
     $columns['order_total'] = 'Total Cost';
 
     $columns['payment_method'] = 'Payment Method';
     $columns['payment_method_title'] = 'Payment Method Title';
+
+    $columns['coupon_codes'] = 'Coupon Codes';
+    $columns['coupon_discounts'] = 'Coupon Discounts';
     return $columns;
 }
 
@@ -56,23 +53,34 @@ function tribe_export_custom_populate_columns($value, $item, $column)
         $orders_cache[$item['order_id']] = [
             'order_date' => $order->order_date,
             'billing' => [
-                'first_name' => $order->billing_first_name,
-                'last_name' => $order->billing_last_name,
-                'billing_company' => $order->billing_company,
+                'billing_first_name' => $order->billing_first_name,
+                'billing_last_name' => $order->billing_last_name,
                 'billing_address_1' => $order->billing_address_1,
-                'billing_address_2' => $order->billing_address_2,
                 'billing_city' => $order->billing_city,
                 'billing_state' => $order->billing_state,
                 'billing_postcode' => $order->billing_postcode,
                 'billing_phone' => $order->billing_phone,
                 'billing_email' => $order->billing_email,
             ],
-            'order_comments' => $order->order_comments,
-            'order_notes' => $order->get_customer_order_notes(),
             'order_total' => $order->order_total,
             'payment_method' => $order->get_payment_method(),
             'payment_method_title' => $order->get_payment_method_title(),
         ];
+    }
+
+    if (!isset($orders_cache[$item['order_id']]['coupons'])) {
+        $coupons = $order->get_used_coupons();
+        $coupon_details = [];
+
+        foreach ($coupons as $coupon_code) {
+            $coupon = new WC_Coupon($coupon_code);
+            $coupon_details[] = [
+                'code' => $coupon_code,
+                'discount' => $coupon->get_amount()
+            ];
+        }
+
+        $orders_cache[$item['order_id']]['coupons'] = $coupon_details;
     }
 
     $order_data = $orders_cache[$item['order_id']];
@@ -83,19 +91,13 @@ function tribe_export_custom_populate_columns($value, $item, $column)
             $value = $order_data['order_date'];
             break;
         case 'billing_first_name':
-            $value = $order_data['billing']['first_name'];
+            $value = $order_data['billing']['billing_first_name'];
             break;
         case 'billing_last_name':
-            $value = $order_data['billing']['last_name'];
-            break;
-        case 'billing_company':
-            $value = $order_data['billing']['billing_company'];
+            $value = $order_data['billing']['billing_last_name'];
             break;
         case 'billing_address_1':
             $value = $order_data['billing']['billing_address_1'];
-            break;
-        case 'billing_address_2':
-            $value = $order_data['billing']['billing_address_2'];
             break;
         case 'billing_city':
             $value = $order_data['billing']['billing_city'];
@@ -112,12 +114,6 @@ function tribe_export_custom_populate_columns($value, $item, $column)
         case 'billing_email':
             $value = $order_data['billing']['billing_email'];
             break;
-        case 'order_comments':
-            $value = $order_data['order_comments'];
-            break;
-        case 'order_notes':
-            $value = $order_data['order_notes'];
-            break;
         case 'order_total':
             $value = $order_data['order_total'];
             break;
@@ -126,6 +122,14 @@ function tribe_export_custom_populate_columns($value, $item, $column)
             break;
         case 'payment_method_title':
             $value = $order_data['payment_method_title'];
+            break;
+        case 'coupon_codes':
+            $coupon_codes = array_column($orders_cache[$item['order_id']]['coupons'], 'code');
+            $value = implode(', ', $coupon_codes);
+            break;
+        case 'coupon_discounts':
+            $coupon_discounts = array_column($orders_cache[$item['order_id']]['coupons'], 'discount');
+            $value = implode(', ', $coupon_discounts);
             break;
     }
 
