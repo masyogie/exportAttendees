@@ -35,9 +35,11 @@ function tribe_export_custom_set_up($event_id) {
     // Check if we're on the correct admin page
     if (!is_admin()) {
         $screen_base = 'tribe_events_page_tickets-attendees';
-    } else {
+    } elseif (function_exists('get_current_screen')) {
         $screen = get_current_screen();
-        $screen_base = $screen->base;
+        $screen_base = $screen ? $screen->base : 'tribe_events_page_tickets-attendees';
+    } else {
+        $screen_base = 'tribe_events_page_tickets-attendees';
     }
 
     // Add filters for columns and data
@@ -75,16 +77,16 @@ function tribe_get_order_data($order_id) {
         }
 
         $orders_cache[$order_id] = [
-            'order_date' => $order->order_date,
-            'billing_first_name' => $order->billing_first_name,
-            'billing_last_name' => $order->billing_last_name,
-            'billing_address_1' => $order->billing_address_1,
-            'billing_city' => $order->billing_city,
-            'billing_state' => $order->billing_state,
-            'billing_postcode' => $order->billing_postcode,
-            'billing_phone' => $order->billing_phone,
-            'billing_email' => $order->billing_email,
-            'order_total' => $order->order_total,
+            'order_date' => $order->get_date_created()->date('Y-m-d H:i:s'),
+            'billing_first_name' => $order->get_billing_first_name(),
+            'billing_last_name' => $order->get_billing_last_name(),
+            'billing_address_1' => $order->get_billing_address_1(),
+            'billing_city' => $order->get_billing_city(),
+            'billing_state' => $order->get_billing_state(),
+            'billing_postcode' => $order->get_billing_postcode(),
+            'billing_phone' => $order->get_billing_phone(),
+            'billing_email' => $order->get_billing_email(),
+            'order_total' => $order->get_total(),
             'payment_method' => $order->get_payment_method(),
             'payment_method_title' => $order->get_payment_method_title(),
             'coupons' => tribe_get_coupon_details($order)
@@ -95,10 +97,10 @@ function tribe_get_order_data($order_id) {
 }
 
 function tribe_get_coupon_details($order) {
-    $coupons = $order->get_used_coupons();
+    $coupon_codes = $order->get_coupon_codes();
     $coupon_details = [];
 
-    foreach ($coupons as $coupon_code) {
+    foreach ($coupon_codes as $coupon_code) {
         $coupon = new WC_Coupon($coupon_code);
         $coupon_details[] = [
             'code' => $coupon_code,
