@@ -2,35 +2,50 @@
 /**
  * Tribe, optimized version for adding user meta to the attendees csv export.
  *
- * Defines the columns to be exported.
- * Columns are defined in a key-value pair, where the key is the data field and the value is the column name in the CSV.
+ * Columns are defined in a single configuration array (single source of truth).
+ * Each column config includes 'label' (header text) and 'getter' (method to retrieve data).
+ * Use 'callback' instead of 'getter' for special handling that requires custom logic.
  **/
 
 /**
- * Defines the columns to be exported.
- * Columns are defined in a key-value pair, where the key is the data field and the value is the column name in the CSV.
+ * Defines the column configuration for export.
+ * Single source of truth for all custom columns.
+ *
+ * @return array Column configurations with 'label' and 'getter' or 'callback'
+ */
+function tribe_get_column_config(): array {
+    return [
+        'billing_first_name'   => ['label' => 'Billing First Name',   'getter' => 'get_billing_first_name'],
+        'billing_last_name'    => ['label' => 'Billing Last Name',    'getter' => 'get_billing_last_name'],
+        'billing_address_1'    => ['label' => 'Billing Address 1',    'getter' => 'get_billing_address_1'],
+        'billing_city'         => ['label' => 'Billing City',         'getter' => 'get_billing_city'],
+        'billing_state'        => ['label' => 'Billing State',        'getter' => 'get_billing_state'],
+        'billing_postcode'     => ['label' => 'Billing Zip',          'getter' => 'get_billing_postcode'],
+        'billing_phone'        => ['label' => 'Phone',                'getter' => 'get_billing_phone'],
+        'billing_email'        => ['label' => 'Email',                'getter' => 'get_billing_email'],
+        'order_date'           => ['label' => 'Order Date',           'getter' => 'get_date_created'],
+        'order_total'          => ['label' => 'Total Cost',           'getter' => 'get_total'],
+        'payment_method'       => ['label' => 'Payment Method',       'getter' => 'get_payment_method'],
+        'payment_method_title' => ['label' => 'Payment Method Title', 'getter' => 'get_payment_method_title'],
+        'coupon_codes'         => ['label' => 'Coupon Codes',         'callback' => 'tribe_get_coupon_codes_string'],
+        'coupon_discounts'     => ['label' => 'Coupon Discounts',     'callback' => 'tribe_get_coupon_discounts_string'],
+    ];
+}
+
+/**
+ * Returns column definitions for headers (key => label mapping).
  *
  * @return array
  */
 function tribe_get_column_definitions(): array {
-    return [
-        // Add your column definitions here
-        // 'field_name' => 'Column Title',
-        'billing_first_name'   => 'Billing First Name',
-        'billing_last_name'    => 'Billing Last Name',
-        'billing_address_1'    => 'Billing Address 1',
-        'billing_city'         => 'Billing City',
-        'billing_state'        => 'Billing State',
-        'billing_postcode'     => 'Billing Zip',
-        'billing_phone'        => 'Phone',
-        'billing_email'        => 'Email',
-        'order_date'           => 'Order Date',
-        'order_total'          => 'Total Cost',
-        'payment_method'       => 'Payment Method',
-        'payment_method_title' => 'Payment Method Title',
-        'coupon_codes'         => 'Coupon Codes',
-        'coupon_discounts'     => 'Coupon Discounts'
-    ];
+    $config = tribe_get_column_config();
+    $definitions = [];
+    
+    foreach ($config as $key => $column) {
+        $definitions[$key] = $column['label'];
+    }
+    
+    return $definitions;
 }
 
 /**
@@ -68,13 +83,12 @@ add_action('tribe_events_tickets_generate_filtered_attendees_list', 'tribe_expor
  * @return array
  */
 function tribe_export_custom_add_columns(array $columns): array {
-    // Merge existing columns with custom columns
     return array_merge($columns, tribe_get_column_definitions());
 }
 
 /**
  * Retrieves WooCommerce order data based on order ID.
- * This data is then cached to optimize performance.
+ * Uses column configuration to dynamically fetch data.
  *
  * @param int $order_id
  * @return array
@@ -93,39 +107,39 @@ function tribe_get_order_data(int $order_id): array {
         return [];
     }
 
-    // Pre-compute coupon data with codes and discounts string
-    $coupon_data = tribe_get_coupon_data($order);
+    $config = tribe_get_column_config();
+    $data = [];
 
-    $orders_cache[$order_id] = [
-        'billing_first_name'   => $order->get_billing_first_name(),
-        'billing_last_name'    => $order->get_billing_last_name(),
-        'billing_address_1'    => $order->get_billing_address_1(),
-        'billing_city'         => $order->get_billing_city(),
-        'billing_state'        => $order->get_billing_state(),
-        'billing_postcode'     => $order->get_billing_postcode(),
-        'billing_phone'        => $order->get_billing_phone(),
-        'billing_email'        => $order->get_billing_email(),
-        'order_date'           => $order->get_date_created()->date('Y-m-d H:i:s'),
-        'order_total'          => $order->get_total(),
-        'payment_method'       => $order->get_payment_method(),
-        'payment_method_title' => $order->get_payment_method_title(),
-        'coupon_codes'         => $coupon_data['codes'],
-        'coupon_discounts'     => $coupon_data['discounts']
-    ];
+    foreach ($config as $key => $column) {
+        if (isset($column['callback'])) {
+            // Use custom callback for special handling (e.g., coupons)
+            $data[$key] = call_user_func($column['callback'], $order);
+        } elseif (isset($column['getter'])) {
+            $getter = $column['getter'];
+            
+            // Handle special formatting for certain getters
+            if ($getter === 'get_date_created') {
+                $date = $order->$getter();
+                $data[$key] = $date ? $date->date('Y-m-d H:i:s') : '';
+            } else {
+                $data[$key] = $order->$getter();
+            }
+        }
+    }
 
-    return $orders_cache[$order_id];
+    $orders_cache[$order_id] = $data;
+    return $data;
 }
 
 /**
- * Retrieves coupon data from an order.
- * Returns pre-formatted strings for codes and discounts.
- * Uses static caching to avoid redundant WC_Coupon instantiation.
+ * Coupon cache for optimization.
  *
  * @param WC_Order $order
- * @return array ['codes' => string, 'discounts' => string]
+ * @return array ['codes' => array, 'discounts' => array]
  */
-function tribe_get_coupon_data(WC_Order $order): array {
+function tribe_get_cached_coupon_data(WC_Order $order): array {
     static $coupon_cache = [];
+    static $coupon_objects = [];
     
     $cache_key = $order->get_id();
     
@@ -136,7 +150,7 @@ function tribe_get_coupon_data(WC_Order $order): array {
     $coupon_codes = $order->get_coupon_codes();
     
     if (empty($coupon_codes)) {
-        $coupon_cache[$cache_key] = ['codes' => '', 'discounts' => ''];
+        $coupon_cache[$cache_key] = ['codes' => [], 'discounts' => []];
         return $coupon_cache[$cache_key];
     }
 
@@ -146,9 +160,6 @@ function tribe_get_coupon_data(WC_Order $order): array {
     foreach ($coupon_codes as $coupon_code) {
         $codes[] = $coupon_code;
         
-        // Cache coupon object by code to avoid re-instantiation
-        static $coupon_objects = [];
-        
         if (!isset($coupon_objects[$coupon_code])) {
             $coupon_objects[$coupon_code] = new WC_Coupon($coupon_code);
         }
@@ -157,16 +168,37 @@ function tribe_get_coupon_data(WC_Order $order): array {
     }
 
     $coupon_cache[$cache_key] = [
-        'codes'     => implode(', ', $codes),
-        'discounts' => implode(', ', $discounts)
+        'codes'     => $codes,
+        'discounts' => $discounts
     ];
 
     return $coupon_cache[$cache_key];
 }
 
 /**
+ * Get formatted coupon codes string.
+ *
+ * @param WC_Order $order
+ * @return string
+ */
+function tribe_get_coupon_codes_string(WC_Order $order): string {
+    $coupon_data = tribe_get_cached_coupon_data($order);
+    return implode(', ', $coupon_data['codes']);
+}
+
+/**
+ * Get formatted coupon discounts string.
+ *
+ * @param WC_Order $order
+ * @return string
+ */
+function tribe_get_coupon_discounts_string(WC_Order $order): string {
+    $coupon_data = tribe_get_cached_coupon_data($order);
+    return implode(', ', $coupon_data['discounts']);
+}
+
+/**
  * Populates the custom columns with relevant data.
- * This function fetches data from the order or other necessary information.
  *
  * @param mixed $value
  * @param array $item
@@ -174,19 +206,14 @@ function tribe_get_coupon_data(WC_Order $order): array {
  * @return mixed
  */
 function tribe_export_custom_populate_columns($value, array $item, string $column) {
-    $custom_columns = tribe_get_column_definitions();
+    $config = tribe_get_column_config();
     
     // Early return if column is not in our definitions
-    if (!isset($custom_columns[$column])) {
+    if (!isset($config[$column])) {
         return $value;
     }
 
     $order_data = tribe_get_order_data((int) $item['order_id']);
 
-    // Return empty string if order not found or data not available
-    if (empty($order_data) || !isset($order_data[$column])) {
-        return '';
-    }
-
-    return $order_data[$column];
+    return $order_data[$column] ?? '';
 }
