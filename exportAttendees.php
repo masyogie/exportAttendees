@@ -7,6 +7,11 @@
  * Use 'callback' instead of 'getter' for special handling that requires custom logic.
  **/
 
+// Prevent direct access
+if (!defined('ABSPATH')) {
+    exit;
+}
+
 /**
  * Defines the column configuration for export.
  * Single source of truth for all custom columns.
@@ -42,7 +47,9 @@ function tribe_get_column_definitions(): array {
     $definitions = [];
     
     foreach ($config as $key => $column) {
-        $definitions[$key] = $column['label'];
+        if (isset($column['label'])) {
+            $definitions[$key] = $column['label'];
+        }
     }
     
     return $definitions;
@@ -87,6 +94,46 @@ function tribe_export_custom_add_columns(array $columns): array {
 }
 
 /**
+ * Safely call a method on WC_Order object.
+ *
+ * @param WC_Order|false $order
+ * @param string $method
+ * @param mixed $default
+ * @return mixed
+ */
+function tribe_safe_order_call($order, string $method, $default = '') {
+    if (!$order instanceof WC_Order) {
+        return $default;
+    }
+    
+    if (!method_exists($order, $method)) {
+        return $default;
+    }
+    
+    try {
+        $result = $order->$method();
+        
+        // Handle WC_DateTime objects
+        if ($result instanceof WC_DateTime) {
+            return $result->date('Y-m-d H:i:s');
+        }
+        
+        // Handle null/empty values
+        if ($result === null) {
+            return $default;
+        }
+        
+        return $result;
+    } catch (Exception $e) {
+        // Log error if WP_DEBUG is enabled
+        if (defined('WP_DEBUG') && WP_DEBUG) {
+            error_log('Tribe Export Error: ' . $e->getMessage());
+        }
+        return $default;
+    }
+}
+
+/**
  * Retrieves WooCommerce order data based on order ID.
  * Uses column configuration to dynamically fetch data.
  *
@@ -100,9 +147,15 @@ function tribe_get_order_data(int $order_id): array {
         return $orders_cache[$order_id];
     }
 
+    // Validate order ID
+    if ($order_id <= 0) {
+        $orders_cache[$order_id] = [];
+        return [];
+    }
+
     $order = wc_get_order($order_id);
     
-    if (!$order) {
+    if (!$order instanceof WC_Order) {
         $orders_cache[$order_id] = [];
         return [];
     }
@@ -111,19 +164,29 @@ function tribe_get_order_data(int $order_id): array {
     $data = [];
 
     foreach ($config as $key => $column) {
-        if (isset($column['callback'])) {
-            // Use custom callback for special handling (e.g., coupons)
-            $data[$key] = call_user_func($column['callback'], $order);
-        } elseif (isset($column['getter'])) {
-            $getter = $column['getter'];
-            
-            // Handle special formatting for certain getters
-            if ($getter === 'get_date_created') {
-                $date = $order->$getter();
-                $data[$key] = $date ? $date->date('Y-m-d H:i:s') : '';
+        if (!is_array($column)) {
+            $data[$key] = '';
+            continue;
+        }
+
+        try {
+            if (isset($column['callback'])) {
+                // Use custom callback for special handling (e.g., coupons)
+                if (is_callable($column['callback'])) {
+                    $data[$key] = call_user_func($column['callback'], $order);
+                } else {
+                    $data[$key] = '';
+                }
+            } elseif (isset($column['getter'])) {
+                $data[$key] = tribe_safe_order_call($order, $column['getter'], '');
             } else {
-                $data[$key] = $order->$getter();
+                $data[$key] = '';
             }
+        } catch (Exception $e) {
+            if (defined('WP_DEBUG') && WP_DEBUG) {
+                error_log("Tribe Export Error for column '{$key}': " . $e->getMessage());
+            }
+            $data[$key] = '';
         }
     }
 
@@ -147,9 +210,19 @@ function tribe_get_cached_coupon_data(WC_Order $order): array {
         return $coupon_cache[$cache_key];
     }
 
-    $coupon_codes = $order->get_coupon_codes();
+    $coupon_codes = [];
     
-    if (empty($coupon_codes)) {
+    try {
+        if (method_exists($order, 'get_coupon_codes')) {
+            $coupon_codes = $order->get_coupon_codes();
+        }
+    } catch (Exception $e) {
+        if (defined('WP_DEBUG') && WP_DEBUG) {
+            error_log('Tribe Export Error: ' . $e->getMessage());
+        }
+    }
+    
+    if (empty($coupon_codes) || !is_array($coupon_codes)) {
         $coupon_cache[$cache_key] = ['codes' => [], 'discounts' => []];
         return $coupon_cache[$cache_key];
     }
@@ -158,13 +231,28 @@ function tribe_get_cached_coupon_data(WC_Order $order): array {
     $discounts = [];
 
     foreach ($coupon_codes as $coupon_code) {
-        $codes[] = $coupon_code;
-        
-        if (!isset($coupon_objects[$coupon_code])) {
-            $coupon_objects[$coupon_code] = new WC_Coupon($coupon_code);
+        if (empty($coupon_code) || !is_string($coupon_code)) {
+            continue;
         }
         
-        $discounts[] = $coupon_objects[$coupon_code]->get_amount();
+        $codes[] = $coupon_code;
+        
+        try {
+            if (!isset($coupon_objects[$coupon_code])) {
+                if (!class_exists('WC_Coupon')) {
+                    continue;
+                }
+                $coupon_objects[$coupon_code] = new WC_Coupon($coupon_code);
+            }
+            
+            $amount = $coupon_objects[$coupon_code]->get_amount();
+            $discounts[] = is_numeric($amount) ? $amount : 0;
+        } catch (Exception $e) {
+            if (defined('WP_DEBUG') && WP_DEBUG) {
+                error_log("Tribe Export Error for coupon '{$coupon_code}': " . $e->getMessage());
+            }
+            $discounts[] = 0;
+        }
     }
 
     $coupon_cache[$cache_key] = [
@@ -182,8 +270,12 @@ function tribe_get_cached_coupon_data(WC_Order $order): array {
  * @return string
  */
 function tribe_get_coupon_codes_string(WC_Order $order): string {
-    $coupon_data = tribe_get_cached_coupon_data($order);
-    return implode(', ', $coupon_data['codes']);
+    try {
+        $coupon_data = tribe_get_cached_coupon_data($order);
+        return implode(', ', $coupon_data['codes']);
+    } catch (Exception $e) {
+        return '';
+    }
 }
 
 /**
@@ -193,8 +285,12 @@ function tribe_get_coupon_codes_string(WC_Order $order): string {
  * @return string
  */
 function tribe_get_coupon_discounts_string(WC_Order $order): string {
-    $coupon_data = tribe_get_cached_coupon_data($order);
-    return implode(', ', $coupon_data['discounts']);
+    try {
+        $coupon_data = tribe_get_cached_coupon_data($order);
+        return implode(', ', $coupon_data['discounts']);
+    } catch (Exception $e) {
+        return '';
+    }
 }
 
 /**
@@ -206,14 +302,26 @@ function tribe_get_coupon_discounts_string(WC_Order $order): string {
  * @return mixed
  */
 function tribe_export_custom_populate_columns($value, array $item, string $column) {
-    $config = tribe_get_column_config();
-    
-    // Early return if column is not in our definitions
-    if (!isset($config[$column])) {
-        return $value;
+    try {
+        $config = tribe_get_column_config();
+        
+        // Early return if column is not in our definitions
+        if (!isset($config[$column])) {
+            return $value;
+        }
+
+        // Validate order_id
+        if (!isset($item['order_id']) || empty($item['order_id'])) {
+            return '';
+        }
+
+        $order_data = tribe_get_order_data((int) $item['order_id']);
+
+        return $order_data[$column] ?? '';
+    } catch (Exception $e) {
+        if (defined('WP_DEBUG') && WP_DEBUG) {
+            error_log("Tribe Export Error in populate_columns: " . $e->getMessage());
+        }
+        return '';
     }
-
-    $order_data = tribe_get_order_data((int) $item['order_id']);
-
-    return $order_data[$column] ?? '';
 }
