@@ -5,12 +5,34 @@
  * Columns are defined in a single configuration array (single source of truth).
  * Each column config includes 'label' (header text) and 'getter' (method to retrieve data).
  * Use 'callback' instead of 'getter' for special handling that requires custom logic.
- **/
+ *
+ * @requires WordPress 5.0+
+ * @requires WooCommerce 3.0+
+ * @requires The Events Calendar by Tribe
+ * @testedwith WooCommerce 8.0+
+ * @compatible HPOS (High Performance Order Storage)
+ */
 
 // Prevent direct access
 if (!defined('ABSPATH')) {
     exit;
 }
+
+/**
+ * Declare compatibility with WooCommerce High Performance Order Storage (HPOS).
+ * This is required for WooCommerce 7.0+ to avoid warnings and ensure proper functionality.
+ * 
+ * @since 1.1.0
+ */
+add_action('before_woocommerce_init', function() {
+    if (class_exists(\Automattic\WooCommerce\Utilities\FeaturesUtil::class)) {
+        \Automattic\WooCommerce\Utilities\FeaturesUtil::declare_compatibility(
+            'custom_order_tables',
+            __FILE__,
+            true
+        );
+    }
+});
 
 /**
  * Defines the column configuration for export.
@@ -213,8 +235,13 @@ function tribe_get_cached_coupon_data(WC_Order $order): array {
     $coupon_codes = [];
     
     try {
+        // WooCommerce 3.7+ uses get_coupon_codes()
         if (method_exists($order, 'get_coupon_codes')) {
             $coupon_codes = $order->get_coupon_codes();
+        } 
+        // Fallback for WooCommerce 3.0-3.6 (deprecated but still works)
+        elseif (method_exists($order, 'get_used_coupons')) {
+            $coupon_codes = $order->get_used_coupons();
         }
     } catch (Exception $e) {
         if (defined('WP_DEBUG') && WP_DEBUG) {

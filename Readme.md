@@ -8,6 +8,20 @@ This PHP snippet enhances the functionality of The Events Calendar plugin by Tri
 - **The Events Calendar** by Tribe (core plugin)
 - **WooCommerce** 3.0 or higher (uses modern CRUD methods)
 
+## Compatibility
+
+| Platform | Version | Status |
+|----------|---------|--------|
+| WordPress | 5.0+ | ✅ Fully Compatible |
+| WooCommerce | 3.0 - 3.6 | ✅ Compatible (with fallback) |
+| WooCommerce | 3.7+ | ✅ Fully Compatible |
+| WooCommerce | 7.0+ (HPOS) | ✅ Compatible (declared) |
+| WooCommerce | 8.0+ | ✅ Tested & Verified |
+
+### HPOS (High Performance Order Storage)
+
+This snippet is fully compatible with WooCommerce's High Performance Order Storage (HPOS) feature introduced in WooCommerce 7.0. The compatibility is automatically declared via `FeaturesUtil::declare_compatibility()`.
+
 ## Features
 
 - **Custom Column Definitions**: Easily define and manage the columns to be exported.
@@ -53,7 +67,13 @@ After installation, the snippet works automatically when you export attendee dat
 
 ## Changelog
 
-### Latest
+### 1.1.0 (Current)
+- **HPOS Compatibility**: Added automatic HPOS (High Performance Order Storage) declaration for WooCommerce 7.0+
+- **Backward Compatibility**: Added fallback for WooCommerce 3.0-3.6 using `get_used_coupons()` when `get_coupon_codes()` is not available
+- **Documentation**: Added version compatibility matrix in README
+- **Code Documentation**: Added docblocks with `@requires`, `@testedwith`, and `@compatible` tags
+
+### 1.0.0
 - Updated to use WooCommerce CRUD methods for compatibility with WooCommerce 3.0+ and HPOS
 - Replaced deprecated direct property access (`$order->billing_first_name`) with getter methods (`$order->get_billing_first_name()`)
 - Replaced deprecated `$order->get_used_coupons()` with `$order->get_coupon_codes()` (WooCommerce 3.7+)
