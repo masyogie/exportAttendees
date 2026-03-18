@@ -41,22 +41,28 @@ add_action('before_woocommerce_init', function() {
  * @return array Column configurations with 'label' and 'getter' or 'callback'
  */
 function tribe_get_column_config(): array {
-    return [
-        'billing_first_name'   => ['label' => 'Billing First Name',   'getter' => 'get_billing_first_name'],
-        'billing_last_name'    => ['label' => 'Billing Last Name',    'getter' => 'get_billing_last_name'],
-        'billing_address_1'    => ['label' => 'Billing Address 1',    'getter' => 'get_billing_address_1'],
-        'billing_city'         => ['label' => 'Billing City',         'getter' => 'get_billing_city'],
-        'billing_state'        => ['label' => 'Billing State',        'getter' => 'get_billing_state'],
-        'billing_postcode'     => ['label' => 'Billing Zip',          'getter' => 'get_billing_postcode'],
-        'billing_phone'        => ['label' => 'Phone',                'getter' => 'get_billing_phone'],
-        'billing_email'        => ['label' => 'Email',                'getter' => 'get_billing_email'],
-        'order_date'           => ['label' => 'Order Date',           'getter' => 'get_date_created'],
-        'order_total'          => ['label' => 'Total Cost',           'getter' => 'get_total'],
-        'payment_method'       => ['label' => 'Payment Method',       'getter' => 'get_payment_method'],
-        'payment_method_title' => ['label' => 'Payment Method Title', 'getter' => 'get_payment_method_title'],
-        'coupon_codes'         => ['label' => 'Coupon Codes',         'callback' => 'tribe_get_coupon_codes_string'],
-        'coupon_discounts'     => ['label' => 'Coupon Discounts',     'callback' => 'tribe_get_coupon_discounts_string'],
-    ];
+    static $config = null;
+
+    if ($config === null) {
+        $config = [
+            'billing_first_name'   => ['label' => 'Billing First Name',   'getter' => 'get_billing_first_name'],
+            'billing_last_name'    => ['label' => 'Billing Last Name',    'getter' => 'get_billing_last_name'],
+            'billing_address_1'    => ['label' => 'Billing Address 1',    'getter' => 'get_billing_address_1'],
+            'billing_city'         => ['label' => 'Billing City',         'getter' => 'get_billing_city'],
+            'billing_state'        => ['label' => 'Billing State',        'getter' => 'get_billing_state'],
+            'billing_postcode'     => ['label' => 'Billing Zip',          'getter' => 'get_billing_postcode'],
+            'billing_phone'        => ['label' => 'Phone',                'getter' => 'get_billing_phone'],
+            'billing_email'        => ['label' => 'Email',                'getter' => 'get_billing_email'],
+            'order_date'           => ['label' => 'Order Date',           'getter' => 'get_date_created'],
+            'order_total'          => ['label' => 'Total Cost',           'getter' => 'get_total'],
+            'payment_method'       => ['label' => 'Payment Method',       'getter' => 'get_payment_method'],
+            'payment_method_title' => ['label' => 'Payment Method Title', 'getter' => 'get_payment_method_title'],
+            'coupon_codes'         => ['label' => 'Coupon Codes',         'callback' => 'tribe_get_coupon_codes_string'],
+            'coupon_discounts'     => ['label' => 'Coupon Discounts',     'callback' => 'tribe_get_coupon_discounts_string'],
+        ];
+    }
+
+    return $config;
 }
 
 /**
@@ -85,14 +91,15 @@ function tribe_get_column_definitions(): array {
  * @return void
  */
 function tribe_export_custom_set_up(int $event_id): void {
-    // Check if we're on the correct admin page
-    if (!is_admin()) {
-        $screen_base = 'tribe_events_page_tickets-attendees';
-    } elseif (function_exists('get_current_screen')) {
+    // Default screen base
+    $screen_base = 'tribe_events_page_tickets-attendees';
+
+    // Try to get actual screen base if in admin
+    if (is_admin() && function_exists('get_current_screen')) {
         $screen = get_current_screen();
-        $screen_base = $screen ? $screen->base : 'tribe_events_page_tickets-attendees';
-    } else {
-        $screen_base = 'tribe_events_page_tickets-attendees';
+        if ($screen !== null) {
+            $screen_base = $screen->base;
+        }
     }
 
     // Add filters for columns and data
